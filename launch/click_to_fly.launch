@@ -1,0 +1,28 @@
+<?xml version="1.0" ?>
+<!-- click_to_fly.launch-->
+
+<launch>
+    <!-- Click to fly-->
+    <node
+        pkg="click_to_fly"
+        type="click_to_fly"
+        name="click_to_fly"
+        output="screen"
+        respawn="false"
+    />
+
+    <!-- rviz-->
+    <node
+        pkg="rviz"
+        type="rviz"
+        name="rviz"
+    />
+
+    <!-- rqt_console-->
+    <node
+        pkg="rqt_console"
+        type="rqt_console"
+        name="rqt_console"
+    />
+
+</launch>
