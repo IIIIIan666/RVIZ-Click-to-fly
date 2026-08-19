@@ -16,6 +16,7 @@
         pkg="rviz"
         type="rviz"
         name="rviz"
+        args="-d $(find click_to_fly)/config/click_to_fly.rviz"
     />
 
     <!-- rqt_console-->

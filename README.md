@@ -9,7 +9,20 @@ Click-to-fly control for a PX4 drone (SITL) via MAVROS: click a point in RViz an
 - Two modes:
   - **WRITE** (default): records the flown trajectory (x, y, z, yaw) to `config/traj.yaml` every second (file is truncated on start)
   - **READ**: loads a recorded trajectory from `config/traj.yaml` and logs the waypoints (playback WIP)
-- Launch file starts the node together with RViz and rqt_console
+- Launch file starts the node together with RViz (auto-loads a preconfigured `.rviz` with drone odometry, clicked-point marker, TF and Grid) and rqt_console
+
+## Repository structure
+
+```
+click_to_fly/
+├── src/click_to_fly.cpp      # main node
+├── launch/click_to_fly.launch # node + rviz + rqt_console
+├── config/
+│   ├── traj.yaml             # recorded / loaded trajectory
+│   └── click_to_fly.rviz     # RViz config (auto-loaded)
+├── CMakeLists.txt
+└── package.xml
+```
 
 ## Test Environment
 
@@ -58,7 +71,7 @@ roslaunch click_to_fly click_to_fly.launch _mode:=READ _traj_file_name:=traj.yam
 
 1. Start Terminal 1, wait for SITL, then start the package in Terminal 2.
 2. Wait until the log shows `FCU connected` and the vehicle is armed in OFFBOARD mode.
-3. In RViz, use the **Publish Point** tool to click a location on the ground. The drone takes off and flies to the clicked location.
+3. In RViz (already configured by the launch file), use the **Publish Point** tool to click a location on the ground. The drone takes off and flies to the clicked location.
 4. In WRITE mode the flown trajectory is saved to `config/traj.yaml`; load it later with READ mode.
 
 ## Parameters
@@ -98,6 +111,7 @@ Lines starting with `#` and empty lines are ignored.
 - [ ] Allow customizing takeoff altitude / spawn point
 - [ ] Move configurable values (e.g. altitude, record frequency) into the launch file
 - [ ] Improve positioning precision
-- [ ] Provide a default `.rviz` config that adds topics automatically
+- [x] Provide a default `.rviz` config that adds topics automatically
 - [ ] Drop yaw from the recorded trajectory
-- [ ] Add Mid360 ridar and show cloud frames in rviz for manual obstacle avoiding
+- [ ] Add Mid360 lidar and show point cloud in RViz for manual obstacle avoidance
+- [ ] Support multiple published points, arrive in order using a B-spline path
