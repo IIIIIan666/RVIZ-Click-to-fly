@@ -23,12 +23,12 @@ struct Waypoint{
     double x;
     double y;
     double z;
-    double yaw;
+    // double yaw; // yaw recording commented out
 };
 std::vector<Waypoint> waypoints;
 
 tf::Quaternion quat;
-double roll, pitch, yaw;
+double roll, pitch; // yaw recording commented out
 float init_position_x_takeoff = 0;
 float init_position_y_takeoff = 0;
 float init_position_z_takeoff = 0;
@@ -45,7 +45,8 @@ void localPositionCallback(const nav_msgs::Odometry::ConstPtr& msg){
         flag_init_position = true;
     }
     tf::quaternionMsgToTF(local_pos.pose.pose.orientation, quat);
-    tf::Matrix3x3(quat).getRPY(roll, pitch, yaw);
+    // yaw extraction commented out because recording yaw is disabled
+    // tf::Matrix3x3(quat).getRPY(roll, pitch, yaw);
 }
 
 void stateCallback(const mavros_msgs::State::ConstPtr&msg){
@@ -83,7 +84,8 @@ bool initTraj(const std::string& filename){
         return false;
     }
 
-    ofs << "# name x y z yaw" << std::endl;
+    // ofs << "# name x y z yaw" << std::endl;
+    ofs << "# name x y z" << std::endl;
     ofs.close();
     traj_index = 0;
     return true;
@@ -111,7 +113,8 @@ bool writeTraj(const std::string& filename){
         << local_pos.pose.pose.position.x << " "
         << local_pos.pose.pose.position.y << " "
         << local_pos.pose.pose.position.z << " "
-        << yaw << std::endl;
+        // << yaw << std::endl; // yaw recording commented out
+        << std::endl;
 
     ofs.close();
     traj_index ++;
@@ -153,10 +156,10 @@ bool loadTraj(const std::string& filename){
 
         std::string name;
         Waypoint wp;
-        if(iss >> name >> wp.x >> wp.y >> wp.z >> wp.yaw){
+        if(iss >> name >> wp.x >> wp.y >> wp.z){
             waypoints.push_back(wp);
-            ROS_INFO("[Waypoint Loaded] %s x=%.3f, y=%.3f, z=%.3f, k=%.3f",
-                    name.c_str(), wp.x, wp.y, wp.z, wp.yaw);
+            ROS_INFO("[Waypoint Loaded] %s x=%.3f, y=%.3f, z=%.3f",
+                name.c_str(), wp.x, wp.y, wp.z);
         }
         else{
             ROS_ERROR("Invalid traj line %d: '%s'", line_num, line.c_str());
@@ -306,7 +309,7 @@ int main(int argc, char** argv){
         
         mavros_setpoint_pos_pub.publish(setpoint_raw);
 
-        if(ros::Time::now() - last_record > ros::Duration(1.0) && mode == "WRITE"){
+        if(ros::Time::now() - last_record > ros::Duration(3.0) && mode == "WRITE"){
             writeTraj(traj_file_name);
             last_record = ros::Time::now();
             

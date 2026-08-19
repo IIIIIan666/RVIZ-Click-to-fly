@@ -112,6 +112,6 @@ Lines starting with `#` and empty lines are ignored.
 - [ ] Move configurable values (e.g. altitude, record frequency) into the launch file
 - [ ] Improve positioning precision
 - [x] Provide a default `.rviz` config that adds topics automatically
-- [ ] Drop yaw from the recorded trajectory
+- [x] Drop yaw from the recorded trajectory
 - [ ] Add Mid360 lidar and show point cloud in RViz for manual obstacle avoidance
 - [ ] Support multiple published points, arrive in order using a B-spline path
