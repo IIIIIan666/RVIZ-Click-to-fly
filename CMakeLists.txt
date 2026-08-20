@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0.2)
 project(click_to_fly)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -10,6 +10,7 @@ project(click_to_fly)
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   mavros_msgs
+  nav_msgs
   roscpp
   roslib
 )
@@ -104,9 +105,9 @@ find_package(catkin REQUIRED COMPONENTS
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES click_to_fly
-#  CATKIN_DEPENDS geometry_msgs mavros_msgs roscpp
+  INCLUDE_DIRS include
+  LIBRARIES file_utils
+  CATKIN_DEPENDS geometry_msgs mavros_msgs nav_msgs roscpp roslib
 #  DEPENDS system_lib
 )
 
@@ -134,7 +135,6 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(${PROJECT_NAME} src/click_to_fly.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -144,12 +144,8 @@ add_executable(${PROJECT_NAME} src/click_to_fly.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
-add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(${PROJECT_NAME}
-  ${catkin_LIBRARIES}
-)
 
 #############
 ## Install ##
@@ -205,3 +201,38 @@ target_link_libraries(${PROJECT_NAME}
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
+)
+
+add_library(file_utils
+  src/file_utils.cpp
+)
+
+target_link_libraries(file_utils
+  ${catkin_LIBRARIES}
+)
+
+add_executable(click_to_fly
+  src/click_to_fly.cpp
+)
+
+add_dependencies(click_to_fly
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+
+target_link_libraries(click_to_fly
+  file_utils
+  ${catkin_LIBRARIES}
+)
+
+add_executable(reverse_traj
+  src/reverse_traj.cpp
+)
+
+target_link_libraries(reverse_traj
+  file_utils
+  ${catkin_LIBRARIES}
+)

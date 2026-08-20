@@ -1,3 +1,4 @@
+// src/click_to_fly.cpp
 #include <ros/ros.h>
 #include <geometry_msgs/PointStamped.h>
 #include <mavros_msgs/State.h>
@@ -6,25 +7,14 @@
 #include <mavros_msgs/CommandBool.h>
 #include <nav_msgs/Odometry.h>
 #include <cmath>
-#include <tf/transform_listener.h>
-#include <fstream>
-#include <sstream>
 #include <string>
 #include <vector>
-#include <ros/package.h>
-#include <algorithm>
-#include <cctype>
+#include <click_to_fly/file_utils.h>
 
 mavros_msgs::State current_state;
 mavros_msgs::PositionTarget setpoint_raw;
 int traj_index = 0;
 
-struct Waypoint{
-    double x;
-    double y;
-    double z;
-    // double yaw; // yaw recording commented out
-};
 std::vector<Waypoint> waypoints;
 
 struct Missionpoint{
@@ -34,8 +24,6 @@ struct Missionpoint{
 };
 std::vector<Missionpoint> missionpoints;
 
-tf::Quaternion quat;
-double roll, pitch; // yaw recording commented out
 float init_position_x_takeoff = 0;
 float init_position_y_takeoff = 0;
 float init_position_z_takeoff = 0;
@@ -49,34 +37,33 @@ double mission_tolerance = 0.5;
 
 void localPositionCallback(const nav_msgs::Odometry::ConstPtr& msg){
     local_pos = *msg;
-    if(flag_init_position == false && (fabs(local_pos.pose.pose.position.z ) >= 0.05)){
+    if(flag_init_position == false){
         init_position_x_takeoff = local_pos.pose.pose.position.x;
         init_position_y_takeoff = local_pos.pose.pose.position.y;
         init_position_z_takeoff = local_pos.pose.pose.position.z;
         flag_init_position = true;
     }
-    tf::quaternionMsgToTF(local_pos.pose.pose.orientation, quat);
-    // yaw extraction commented out because recording yaw is disabled
-    // tf::Matrix3x3(quat).getRPY(roll, pitch, yaw);
 }
 
-void stateCallback(const mavros_msgs::State::ConstPtr&msg){
+void stateCallback(const mavros_msgs::State::ConstPtr& msg){
     current_state = *msg;
 }
 
-void clickedPointCallback(const geometry_msgs::PointStamped::ConstPtr&msg){
-    /*
-    setpoint_raw.position.x = msg->point.x - init_position_x_takeoff;
-    setpoint_raw.position.y = msg->point.y - init_position_y_takeoff;
-    setpoint_raw.position.z = takeoff_altitude;
-
-    ROS_INFO("New target: x=%.2f y=%.2f z=%.2f", 
-        setpoint_raw.position.x, setpoint_raw.position.y, setpoint_raw.position.z);
-    */
+void clickedPointCallback(const geometry_msgs::PointStamped::ConstPtr& msg){
+    if(!flag_init_position){
+        ROS_WARN("Ignoring clicked point: initial local position is not available");
+        return;
+    }
+    if(!msg->header.frame_id.empty() && !local_pos.header.frame_id.empty()
+        && msg->header.frame_id != local_pos.header.frame_id){
+        ROS_ERROR("Ignoring clicked point: frame '%s' does not match local position frame '%s'",
+            msg->header.frame_id.c_str(), local_pos.header.frame_id.c_str());
+        return;
+    }
     Missionpoint mp;
-    mp.x = msg->point.x - init_position_x_takeoff;
-    mp.y = msg->point.y - init_position_y_takeoff;
-    mp.z = takeoff_altitude;
+    mp.x = msg->point.x;
+    mp.y = msg->point.y;
+    mp.z = init_position_z_takeoff + takeoff_altitude;
     missionpoints.push_back(mp);
     ROS_INFO("New mission point added: x=%.2f y=%.2f z=%.2f", mp.x, mp.y, mp.z);
 }
@@ -90,7 +77,7 @@ void setCurrentMissionpoint(){
     setpoint_raw.position.x = mp.x;
     setpoint_raw.position.y = mp.y;
     setpoint_raw.position.z = mp.z;
-    ROS_INFO("Setting mission point %zu: x=%.2f y=%.2f z=%.2f", current_mission_index, mp.x, mp.y, mp.z);
+    ROS_INFO_THROTTLE(1.0, "Setting mission point %zu: x=%.2f y=%.2f z=%.2f", current_mission_index, mp.x, mp.y, mp.z);
 }
 
 bool missionpointReached(const Missionpoint& mp){
@@ -99,116 +86,10 @@ bool missionpointReached(const Missionpoint& mp){
         std::pow(local_pos.pose.pose.position.y - mp.y, 2) +
         std::pow(local_pos.pose.pose.position.z - mp.z, 2)
     );
-    return distance < mission_tolerance;
+    return distance <= mission_tolerance;
 }
 
-std::string getFilePath(const std::string& filename){
-    std::string package_path = ros::package::getPath("click_to_fly");
-    if (package_path.empty()){
-        ROS_ERROR("Cannot find package 'click_to_fly'");
-        return "";
-    }
-    return package_path + "/config/" + filename;
-}
 
-bool initTraj(const std::string& filename){
-    std::string file_path = getFilePath(filename);
-    if(file_path.empty()){
-        return false;
-    }
-
-    std::ofstream ofs(file_path, std::ios::trunc);
-
-    if(!ofs.is_open()){
-        ROS_ERROR("Failed to initiate trajectory file: %s", file_path.c_str());
-        return false;
-    }
-
-    // ofs << "# name x y z yaw" << std::endl;
-    ofs << "# name x y z" << std::endl;
-    ofs.close();
-    traj_index = 0;
-    return true;
-}
-
-bool writeTraj(const std::string& filename){
-    if(!flag_init_position){
-        ROS_WARN_THROTTLE(5.0, "Skipping trajectory write: initial position not set");
-        return false;
-    }
-
-    std::string file_path = getFilePath(filename);
-    if(file_path.empty()){
-        return false;
-    }
-
-    std::ofstream ofs(file_path, std::ios::app);
-
-    if(!ofs.is_open()){
-        ROS_ERROR("Failed to initiate trajectory file: %s", file_path.c_str());
-        return false;
-    }
-
-    ofs << "p" << traj_index << " "
-        << local_pos.pose.pose.position.x << " "
-        << local_pos.pose.pose.position.y << " "
-        << local_pos.pose.pose.position.z << " "
-        // << yaw << std::endl; // yaw recording commented out
-        << std::endl;
-
-    ofs.close();
-    traj_index ++;
-    return true;
-}
-
-bool loadTraj(const std::string& filename){
-    std::string file_path = getFilePath(filename);
-    if(file_path.empty()){
-        return false;
-    }
-
-    std::ifstream ifs(file_path);
-
-    if(!ifs.is_open()){
-        ROS_ERROR("Failed to initiate trajectory file: %s", file_path.c_str());
-        return false;
-    }
-
-    waypoints.clear();
-    std::string line;
-    int line_num = 0;
-
-    auto trim = [](std::string &s){
-        s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch){ return !std::isspace(ch); }));
-        s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch){ return !std::isspace(ch); }).base(), s.end());
-    };
-
-    while(std::getline(ifs, line)){
-        ++line_num;
-        trim(line);
-        if(line.empty()){
-            continue;
-        }
-        if(line[0] == '#'){
-            continue;
-        }
-        std::stringstream iss(line);
-
-        std::string name;
-        Waypoint wp;
-        if(iss >> name >> wp.x >> wp.y >> wp.z){
-            waypoints.push_back(wp);
-            ROS_INFO("[Waypoint Loaded] %s x=%.3f, y=%.3f, z=%.3f",
-                name.c_str(), wp.x, wp.y, wp.z);
-        }
-        else{
-            ROS_ERROR("Invalid traj line %d: '%s'", line_num, line.c_str());
-        }
-    }
-    ROS_INFO("Loaded %zu traj points", waypoints.size());
-    ifs.close();
-    return true;
-}
 
 
 
@@ -220,9 +101,9 @@ int main(int argc, char** argv){
     ros::NodeHandle nh;
     ros::NodeHandle pnh("~");
 
-    std::string mode;
-    std::string write_traj_file_name;
-    std::string read_traj_file_name;
+    std::string mode = "WRITE";
+    std::string write_traj_file_name = "traj.yaml";
+    std::string read_traj_file_name = "traj.yaml";
     double write_interval = 1;
 
 
@@ -267,8 +148,6 @@ int main(int argc, char** argv){
 
 
 
-
-
     ROS_INFO("mode = %s, write_traj_file = %s, read_traj_file = %s",
         mode.c_str(),
         write_traj_file_name.c_str(),
@@ -284,12 +163,31 @@ int main(int argc, char** argv){
     // initialize last_record now that ROS time is available
     last_record = ros::Time::now();
 
+    if(write_interval <= 0 || mission_tolerance <= 0){
+        ROS_FATAL("write_interval and mission_tolerance must be greater than zero");
+        return -1;
+    }
+
     if(mode == "WRITE"){
-        initTraj(write_traj_file_name);
+        if(!initTraj(write_traj_file_name)){
+            ROS_FATAL("Failed to initialize trajectory file: %s", write_traj_file_name.c_str());
+            return -1;
+        }
+        traj_index = 0;
         ROS_INFO("Current mode: %s", mode.c_str());
     }
     else if(mode == "READ"){
-        loadTraj(read_traj_file_name);
+        if(!loadTraj(read_traj_file_name, waypoints)){
+            ROS_FATAL("Failed to load trajectory file: %s", read_traj_file_name.c_str());
+            return -1;
+        }
+        for(const Waypoint& wp : waypoints){
+            Missionpoint mp;
+            mp.x = wp.x;
+            mp.y = wp.y;
+            mp.z = wp.z;
+            missionpoints.push_back(mp);
+        }
         ROS_INFO("Current mode: %s", mode.c_str());
     }
     else{
@@ -331,11 +229,6 @@ int main(int argc, char** argv){
     setpoint_raw.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
     setpoint_raw.type_mask = /*1 + 2 + 4 +*/ 8 + 16 + 32 + 64 + 128 + 256 /*+512 + 1024  */+ 2048;
 
-    setpoint_raw.position.x = init_position_x_takeoff;
-    setpoint_raw.position.y = init_position_y_takeoff;
-    setpoint_raw.position.z = init_position_z_takeoff + takeoff_altitude;
-    setpoint_raw.yaw = 0.0;
-
     ROS_INFO("Waiting up to %.1f s for initial local position...", init_wait_timeout);
     ros::Time init_wait_start = ros::Time::now();
     while (ros::ok() && !flag_init_position && ros::Time::now() - init_wait_start < ros::Duration(init_wait_timeout)){
@@ -343,8 +236,14 @@ int main(int argc, char** argv){
         rate.sleep();
     }
     if(!flag_init_position){
-        ROS_WARN("Initial local position not received within %.1f s, continuing with current origin.", init_wait_timeout);
+        ROS_FATAL("Initial local position not received within %.1f s", init_wait_timeout);
+        return -1;
     }
+
+    setpoint_raw.position.x = init_position_x_takeoff;
+    setpoint_raw.position.y = init_position_y_takeoff;
+    setpoint_raw.position.z = init_position_z_takeoff + takeoff_altitude;
+    setpoint_raw.yaw = 0.0;
 
     ROS_INFO("Sending initial setpoints...");
 
@@ -413,13 +312,29 @@ int main(int argc, char** argv){
         mavros_setpoint_pos_pub.publish(setpoint_raw);
 
         if(ros::Time::now() - last_record > ros::Duration(write_interval) && mode == "WRITE"){
-            writeTraj(write_traj_file_name);
+            if(flag_init_position){
+                Waypoint wp;
+                wp.x = local_pos.pose.pose.position.x;
+                wp.y = local_pos.pose.pose.position.y;
+                wp.z = local_pos.pose.pose.position.z;
+                if(appendWaypoint(write_traj_file_name, wp, traj_index)){
+                    ROS_INFO("Waypoint %d recorded: x=%.2f y=%.2f z=%.2f", traj_index, wp.x, wp.y, wp.z);
+                    traj_index++;
+                }
+                else{
+                    ROS_ERROR("Failed to record waypoint %d", traj_index);
+                }
+            }
             last_record = ros::Time::now();
             
         }
 
-        if (fabs(local_pos.pose.pose.position.x - setpoint_raw.position.x) < 0.05
-            && fabs(local_pos.pose.pose.position.y - setpoint_raw.position.y) < 0.08){
+        double target_distance = std::sqrt(
+            std::pow(local_pos.pose.pose.position.x - setpoint_raw.position.x, 2) +
+            std::pow(local_pos.pose.pose.position.y - setpoint_raw.position.y, 2) +
+            std::pow(local_pos.pose.pose.position.z - setpoint_raw.position.z, 2)
+        );
+        if(target_distance <= mission_tolerance){
             ROS_WARN_THROTTLE(
                 1.0, 
                 "Target position (x=%.2f y=%.2f z=%.2f) reached, waiting for next target...",

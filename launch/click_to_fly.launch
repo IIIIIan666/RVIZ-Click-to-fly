@@ -14,7 +14,7 @@
         <param name="mode" value="WRITE" />
         <param name="write_interval" value="5.0" />
         <param name="write_traj_file_name" value="traj.yaml" />
-        <!--param name="read_traj_file_name" value="traj.yaml" /-->
+        <param name="read_traj_file_name" value="traj.yaml" />
         <param name="mission_tolerance" value="0.5" />
     </node>
 
