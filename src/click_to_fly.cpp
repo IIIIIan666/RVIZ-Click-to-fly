@@ -27,14 +27,25 @@ struct Waypoint{
 };
 std::vector<Waypoint> waypoints;
 
+struct Missionpoint{
+    double x;
+    double y;
+    double z;
+};
+std::vector<Missionpoint> missionpoints;
+
 tf::Quaternion quat;
 double roll, pitch; // yaw recording commented out
 float init_position_x_takeoff = 0;
 float init_position_y_takeoff = 0;
 float init_position_z_takeoff = 0;
+double takeoff_altitude = 10.0;
 bool flag_init_position = false;
 nav_msgs::Odometry local_pos;
 ros::Time last_record; // initialized after ros::init() to avoid TimeNotInitializedException
+size_t current_mission_index = 0;
+double mission_tolerance = 0.5;
+
 
 void localPositionCallback(const nav_msgs::Odometry::ConstPtr& msg){
     local_pos = *msg;
@@ -54,12 +65,41 @@ void stateCallback(const mavros_msgs::State::ConstPtr&msg){
 }
 
 void clickedPointCallback(const geometry_msgs::PointStamped::ConstPtr&msg){
+    /*
     setpoint_raw.position.x = msg->point.x - init_position_x_takeoff;
     setpoint_raw.position.y = msg->point.y - init_position_y_takeoff;
-    setpoint_raw.position.z = 2.0;
+    setpoint_raw.position.z = takeoff_altitude;
 
     ROS_INFO("New target: x=%.2f y=%.2f z=%.2f", 
         setpoint_raw.position.x, setpoint_raw.position.y, setpoint_raw.position.z);
+    */
+    Missionpoint mp;
+    mp.x = msg->point.x - init_position_x_takeoff;
+    mp.y = msg->point.y - init_position_y_takeoff;
+    mp.z = takeoff_altitude;
+    missionpoints.push_back(mp);
+    ROS_INFO("New mission point added: x=%.2f y=%.2f z=%.2f", mp.x, mp.y, mp.z);
+}
+
+void setCurrentMissionpoint(){
+    if(current_mission_index >= missionpoints.size()){
+        ROS_WARN_THROTTLE(5.0, "No more mission points to set.");
+        return;
+    }
+    const Missionpoint& mp = missionpoints[current_mission_index];
+    setpoint_raw.position.x = mp.x;
+    setpoint_raw.position.y = mp.y;
+    setpoint_raw.position.z = mp.z;
+    ROS_INFO("Setting mission point %zu: x=%.2f y=%.2f z=%.2f", current_mission_index, mp.x, mp.y, mp.z);
+}
+
+bool missionpointReached(const Missionpoint& mp){
+    double distance = std::sqrt(
+        std::pow(local_pos.pose.pose.position.x - mp.x, 2) +
+        std::pow(local_pos.pose.pose.position.y - mp.y, 2) +
+        std::pow(local_pos.pose.pose.position.z - mp.z, 2)
+    );
+    return distance < mission_tolerance;
 }
 
 std::string getFilePath(const std::string& filename){
@@ -170,6 +210,10 @@ bool loadTraj(const std::string& filename){
     return true;
 }
 
+
+
+
+
 int main(int argc, char** argv){
     
     ros::init(argc, argv, "raw_setpoint_click_control");
@@ -177,23 +221,58 @@ int main(int argc, char** argv){
     ros::NodeHandle pnh("~");
 
     std::string mode;
-    std::string traj_file_name;
+    std::string write_traj_file_name;
+    std::string read_traj_file_name;
+    double write_interval = 1;
+
+
+
+
 
     pnh.param<std::string>(
         "mode",
         mode,
-        "WRITE"
+        mode
     );
 
     pnh.param<std::string>(
-        "traj_file_name",
-        traj_file_name,
-        "traj.yaml"
+        "write_traj_file_name",
+        write_traj_file_name,
+        write_traj_file_name
     );
 
-    ROS_INFO("mode = %s, traj_file = %s",
+    pnh.param<std::string>(
+        "read_traj_file_name",
+        read_traj_file_name,
+        read_traj_file_name
+    );
+
+    pnh.param<double>(
+        "takeoff_altitude",
+        takeoff_altitude,
+        takeoff_altitude
+    );
+
+    pnh.param<double>(
+        "write_interval",
+        write_interval,
+        write_interval
+    );
+
+    pnh.param<double>(
+        "mission_tolerance",
+        mission_tolerance,
+        mission_tolerance
+    );
+
+
+
+
+
+    ROS_INFO("mode = %s, write_traj_file = %s, read_traj_file = %s",
         mode.c_str(),
-        traj_file_name.c_str());
+        write_traj_file_name.c_str(),
+        read_traj_file_name.c_str());
 
     double request_interval = 5.0;
     double init_wait_timeout = 10.0;
@@ -206,17 +285,20 @@ int main(int argc, char** argv){
     last_record = ros::Time::now();
 
     if(mode == "WRITE"){
-        initTraj(traj_file_name);
+        initTraj(write_traj_file_name);
         ROS_INFO("Current mode: %s", mode.c_str());
     }
     else if(mode == "READ"){
-        loadTraj(traj_file_name);
+        loadTraj(read_traj_file_name);
         ROS_INFO("Current mode: %s", mode.c_str());
     }
     else{
         ROS_ERROR("Unknown mode: %s", mode.c_str());
         return -1;
     }
+
+
+
 
     ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
     ("/mavros/state", 100, stateCallback);
@@ -234,6 +316,10 @@ int main(int argc, char** argv){
     ros::ServiceClient setmode_cl = nh.serviceClient<mavros_msgs::SetMode>("/mavros/set_mode");
     
 
+
+
+
+
     ros::Rate rate(20.0);
     ROS_INFO("Initializing...");
     while (ros::ok() && !current_state.connected){
@@ -247,7 +333,7 @@ int main(int argc, char** argv){
 
     setpoint_raw.position.x = init_position_x_takeoff;
     setpoint_raw.position.y = init_position_y_takeoff;
-    setpoint_raw.position.z = init_position_z_takeoff + 2.0;
+    setpoint_raw.position.z = init_position_z_takeoff + takeoff_altitude;
     setpoint_raw.yaw = 0.0;
 
     ROS_INFO("Waiting up to %.1f s for initial local position...", init_wait_timeout);
@@ -279,6 +365,9 @@ int main(int argc, char** argv){
 
 
 
+
+
+
     while (ros::ok()){
 
         if (current_state.mode != "OFFBOARD" && ros::Time::now() - last_request > ros::Duration(request_interval)){
@@ -303,14 +392,28 @@ int main(int argc, char** argv){
         }
     
 
+        if(current_mission_index < missionpoints.size()){
+            setCurrentMissionpoint();
+            const Missionpoint& current_mp = missionpoints[current_mission_index];
+            
+            if(missionpointReached(current_mp)){
+                ROS_INFO("Mission point %zu reached: x=%.2f y=%.2f z=%.2f", current_mission_index, current_mp.x, current_mp.y, current_mp.z);
+                current_mission_index++;
+                if(current_mission_index < missionpoints.size()){
+                    ROS_INFO("Next mission point: x=%.2f y=%.2f z=%.2f", 
+                        missionpoints[current_mission_index].x, missionpoints[current_mission_index].y, missionpoints[current_mission_index].z);
+                }
+                else{
+                    ROS_INFO("All mission points completed.");
+                }         
+            }
+        }
 
-        setpoint_raw.header.stamp =
-            ros::Time::now();
-        
+        setpoint_raw.header.stamp = ros::Time::now();
         mavros_setpoint_pos_pub.publish(setpoint_raw);
 
-        if(ros::Time::now() - last_record > ros::Duration(3.0) && mode == "WRITE"){
-            writeTraj(traj_file_name);
+        if(ros::Time::now() - last_record > ros::Duration(write_interval) && mode == "WRITE"){
+            writeTraj(write_traj_file_name);
             last_record = ros::Time::now();
             
         }

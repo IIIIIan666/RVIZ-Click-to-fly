@@ -108,10 +108,12 @@ Lines starting with `#` and empty lines are ignored.
 ## TODO
 
 - [ ] Playback of recorded waypoints in READ mode
-- [ ] Allow customizing takeoff altitude / spawn point
-- [ ] Move configurable values (e.g. altitude, record frequency) into the launch file
+- [x] Allow customizing takeoff altitude
+- [ ] Allow customizing takeoff spawn point
+- [x] Move configurable values (e.g. altitude, record frequency) into the launch file
 - [ ] Improve positioning precision
 - [x] Provide a default `.rviz` config that adds topics automatically
 - [x] Drop yaw from the recorded trajectory
 - [ ] Add Mid360 lidar and show point cloud in RViz for manual obstacle avoidance
+- [x] Support multiple published points
 - [ ] Support multiple published points, arrive in order using a B-spline path
